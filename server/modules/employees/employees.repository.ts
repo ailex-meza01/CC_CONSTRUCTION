@@ -1,6 +1,6 @@
 import { getSqlPool } from "../../db/sqlServer.js";
 import { sql } from "../../db/sqlServer.js";
-import type { Employee } from "./employees.types.js";
+import type { CreateEmployeeInput, Employee } from "./employees.types.js";
 
 export const findEmployees = async (): Promise<Employee[]> => {
   const pool = await getSqlPool();
@@ -16,6 +16,20 @@ export const findEmployees = async (): Promise<Employee[]> => {
   `);
 
   return result.recordset;
+};
+
+export const createEmployee = async (input: CreateEmployeeInput): Promise<Employee> => {
+  const pool = await getSqlPool();
+  const result = await pool.request()
+    .input("fullName", sql.NVarChar(140), input.fullName)
+    .input("position", sql.NVarChar(100), input.position)
+    .input("projectName", sql.NVarChar(160), input.projectName)
+    .input("status", sql.NVarChar(40), input.status)
+    .query<Employee>(`INSERT dbo.Employees (full_name, position, project_name, status)
+      OUTPUT INSERTED.id, INSERTED.full_name AS fullName, INSERTED.position,
+      INSERTED.project_name AS projectName, INSERTED.status
+      VALUES (@fullName, @position, @projectName, @status)`);
+  return result.recordset[0];
 };
 
 export const deleteEmployeeById = async (id: number) => {

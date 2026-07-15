@@ -17,6 +17,7 @@ export const env = {
   sqlServer: {
     host: process.env.SQL_SERVER_HOST ?? "localhost",
     port: toNumber(process.env.SQL_SERVER_PORT, 1433),
+    instance: process.env.SQL_SERVER_INSTANCE,
     database: process.env.SQL_SERVER_DATABASE ?? "cc_construction",
     user: process.env.SQL_SERVER_USER ?? "sa",
     password: process.env.SQL_SERVER_PASSWORD ?? "",

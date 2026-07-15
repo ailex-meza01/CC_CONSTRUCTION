@@ -76,14 +76,19 @@ type Incident = {
   evidenceCount: number;
 };
 
+type ProgressUpdate = { id:number; projectName:string; phase:string; percentComplete:number; notes:string; reportedOn:string };
+type Report = { id:number; title:string; reportType:string; periodLabel:string; metricValue:number; metricUnit:string; status:string };
+
 type DashboardData = {
   projects: Project[];
   employees: Employee[];
   materials: Material[];
   incidents: Incident[];
+  progressUpdates: ProgressUpdate[];
+  reports: Report[];
 };
 
-type ModalType = "project" | "material" | "incident" | null;
+type ModalType = "project" | "employee" | "material" | "incident" | "progress" | "report" | null;
 
 type MaterialImagePayload = {
   fileName: string;
@@ -127,6 +132,8 @@ const emptyData: DashboardData = {
   employees: [],
   materials: [],
   incidents: [],
+  progressUpdates: [],
+  reports: [],
 };
 
 const apiGet = async <T,>(url: string): Promise<T> => {
@@ -166,6 +173,7 @@ function App() {
   const [loginError, setLoginError] = useState("");
   const [loginLoading, setLoginLoading] = useState(false);
   const [data, setData] = useState<DashboardData>(emptyData);
+  const [searchQuery,setSearchQuery]=useState("");
   const [dataStatus, setDataStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [activeModal, setActiveModal] = useState<ModalType>(null);
   const [saving, setSaving] = useState(false);
@@ -192,11 +200,23 @@ function App() {
     projectName: "",
     evidenceCount: "0",
   });
+  const [employeeForm, setEmployeeForm] = useState({ fullName:"", position:"", projectName:"", status:"Active" });
+  const [progressForm, setProgressForm] = useState({ projectName:"", phase:"", percentComplete:"0", notes:"", reportedOn:new Date().toISOString().slice(0,10) });
+  const [reportForm, setReportForm] = useState({ title:"", reportType:"Progress", periodLabel:"", metricValue:"0", metricUnit:"percent", status:"Current" });
 
   const visibleNav = useMemo(() => {
     const permissions = currentUser ? rolePermissions[currentUser.role] : [];
     return navItems.filter((item) => permissions.includes(item.id));
   }, [currentUser]);
+
+  const filteredData=useMemo(()=>{const q=searchQuery.trim().toLowerCase();if(!q)return data;const has=(...values:unknown[])=>values.some(v=>String(v??"").toLowerCase().includes(q));return{
+    projects:data.projects.filter(x=>has(x.name,x.location,x.manager,x.status)),
+    employees:data.employees.filter(x=>has(x.fullName,x.position,x.projectName,x.status)),
+    materials:data.materials.filter(x=>has(x.name,x.movementType,x.quantity,x.destination)),
+    incidents:data.incidents.filter(x=>has(x.description,x.priority,x.projectName)),
+    progressUpdates:data.progressUpdates.filter(x=>has(x.projectName,x.phase,x.notes,x.reportedOn)),
+    reports:data.reports.filter(x=>has(x.title,x.reportType,x.periodLabel,x.status)),
+  }},[data,searchQuery]);
 
   useEffect(() => {
     if (!currentUser) return;
@@ -209,10 +229,12 @@ function App() {
       apiGet<Employee[]>("/api/employees"),
       apiGet<Material[]>("/api/materials"),
       apiGet<Incident[]>("/api/incidents"),
+      apiGet<ProgressUpdate[]>("/api/progress"),
+      apiGet<Report[]>("/api/reports"),
     ])
-      .then(([projects, employees, materials, incidents]) => {
+      .then(([projects, employees, materials, incidents, progressUpdates, reports]) => {
         if (!active) return;
-        setData({ projects, employees, materials, incidents });
+        setData({ projects, employees, materials, incidents, progressUpdates, reports });
         setDataStatus("ready");
       })
       .catch(() => {
@@ -345,6 +367,10 @@ function App() {
     }
   };
 
+  const handleCreateEmployee = async (event:FormEvent) => { event.preventDefault(); setSaving(true); setSaveError(""); try { const employee=await apiPost<Employee>("/api/employees",employeeForm); setData(c=>({...c,employees:[employee,...c.employees]})); setEmployeeForm({fullName:"",position:"",projectName:"",status:"Active"}); setActiveModal(null); } catch { setSaveError("Could not save the crew member."); } finally { setSaving(false); } };
+  const handleCreateProgress = async (event:FormEvent) => { event.preventDefault(); setSaving(true); setSaveError(""); try { const update=await apiPost<ProgressUpdate>("/api/progress",{...progressForm,percentComplete:Number(progressForm.percentComplete)}); setData(c=>({...c,progressUpdates:[update,...c.progressUpdates]})); setProgressForm({projectName:"",phase:"",percentComplete:"0",notes:"",reportedOn:new Date().toISOString().slice(0,10)}); setActiveModal(null); } catch { setSaveError("Could not save the progress update."); } finally { setSaving(false); } };
+  const handleCreateReport = async (event:FormEvent) => { event.preventDefault(); setSaving(true); setSaveError(""); try { const report=await apiPost<Report>("/api/reports",{...reportForm,metricValue:Number(reportForm.metricValue)}); setData(c=>({...c,reports:[report,...c.reports]})); setReportForm({title:"",reportType:"Progress",periodLabel:"",metricValue:"0",metricUnit:"percent",status:"Current"}); setActiveModal(null); } catch { setSaveError("Could not save the report."); } finally { setSaving(false); } };
+
   const handleMaterialImage = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) {
@@ -398,6 +424,8 @@ function App() {
       incidents: current.incidents.filter((incident) => incident.id !== id),
     }));
   };
+  const handleDeleteProgress = async(id:number)=>{if(!window.confirm("Delete this progress update?"))return;await apiDelete(`/api/progress/${id}`);setData(c=>({...c,progressUpdates:c.progressUpdates.filter(x=>x.id!==id)}));};
+  const handleDeleteReport = async(id:number)=>{if(!window.confirm("Delete this report?"))return;await apiDelete(`/api/reports/${id}`);setData(c=>({...c,reports:c.reports.filter(x=>x.id!==id)}));};
 
   if (!currentUser) {
     return (
@@ -512,7 +540,7 @@ function App() {
           </button>
           <div className="search-box">
             <Search size={18} />
-            <input placeholder="Search project, crew member or material" />
+            <input value={searchQuery} onChange={e=>setSearchQuery(e.target.value)} placeholder="Search all operational records" />
           </div>
           <div className="user-pill">
             <span>{currentUser.role}</span>
@@ -530,14 +558,19 @@ function App() {
             <ViewRenderer
               view={activeView}
               role={currentUser.role}
-              data={data}
+              data={filteredData}
               onDeleteEmployee={handleDeleteEmployee}
               onDeleteIncident={handleDeleteIncident}
               onDeleteMaterial={handleDeleteMaterial}
               onDeleteProject={handleDeleteProject}
+              onDeleteProgress={handleDeleteProgress}
+              onDeleteReport={handleDeleteReport}
               onAddProject={() => openCreateModal("project")}
               onAddMaterial={() => openCreateModal("material")}
               onAddIncident={() => openCreateModal("incident")}
+              onAddEmployee={() => openCreateModal("employee")}
+              onAddProgress={() => openCreateModal("progress")}
+              onAddReport={() => openCreateModal("report")}
             />
           ) : null}
         </section>
@@ -549,15 +582,24 @@ function App() {
         handleCreateIncident={handleCreateIncident}
         handleCreateMaterial={handleCreateMaterial}
         handleCreateProject={handleCreateProject}
+        handleCreateEmployee={handleCreateEmployee}
+        handleCreateProgress={handleCreateProgress}
+        handleCreateReport={handleCreateReport}
         handleMaterialImage={handleMaterialImage}
         incidentForm={incidentForm}
         materialForm={materialForm}
         projectForm={projectForm}
+        employeeForm={employeeForm}
+        progressForm={progressForm}
+        reportForm={reportForm}
         saveError={saveError}
         saving={saving}
         setIncidentForm={setIncidentForm}
         setMaterialForm={setMaterialForm}
         setProjectForm={setProjectForm}
+        setEmployeeForm={setEmployeeForm}
+        setProgressForm={setProgressForm}
+        setReportForm={setReportForm}
       />
     </div>
   );
@@ -570,10 +612,15 @@ function ViewRenderer({
   onAddProject,
   onAddMaterial,
   onAddIncident,
+  onAddEmployee,
+  onAddProgress,
+  onAddReport,
   onDeleteProject,
   onDeleteEmployee,
   onDeleteMaterial,
   onDeleteIncident,
+  onDeleteProgress,
+  onDeleteReport,
 }: {
   view: View;
   role: Role;
@@ -581,17 +628,22 @@ function ViewRenderer({
   onAddProject: () => void;
   onAddMaterial: () => void;
   onAddIncident: () => void;
+  onAddEmployee: () => void;
+  onAddProgress: () => void;
+  onAddReport: () => void;
   onDeleteProject: (id: number) => void;
   onDeleteEmployee: (id: number) => void;
   onDeleteMaterial: (id: number) => void;
   onDeleteIncident: (id: number) => void;
+  onDeleteProgress: (id:number)=>void;
+  onDeleteReport: (id:number)=>void;
 }) {
   if (view === "projects") return <ProjectsView projects={data.projects} onAddProject={onAddProject} onDeleteProject={onDeleteProject} />;
-  if (view === "employees") return <EmployeesView employees={data.employees} onDeleteEmployee={onDeleteEmployee} />;
+  if (view === "employees") return <EmployeesView employees={data.employees} onAddEmployee={onAddEmployee} onDeleteEmployee={onDeleteEmployee} />;
   if (view === "materials") return <MaterialsView materials={data.materials} onAddMaterial={onAddMaterial} onDeleteMaterial={onDeleteMaterial} />;
-  if (view === "progress") return <ProgressView projects={data.projects} />;
+  if (view === "progress") return <ProgressView updates={data.progressUpdates} onAddProgress={onAddProgress} onDeleteProgress={onDeleteProgress} />;
   if (view === "incidents") return <IncidentsView incidents={data.incidents} onAddIncident={onAddIncident} onDeleteIncident={onDeleteIncident} />;
-  if (view === "reports") return <ReportsView projects={data.projects} employees={data.employees} />;
+  if (view === "reports") return <ReportsView reports={data.reports} projects={data.projects} employees={data.employees} onAddReport={onAddReport} onDeleteReport={onDeleteReport} />;
   return <Dashboard role={role} data={data} />;
 }
 
@@ -786,14 +838,16 @@ function ProjectsView({
 
 function EmployeesView({
   employees,
+  onAddEmployee,
   onDeleteEmployee,
 }: {
   employees: Employee[];
+  onAddEmployee:()=>void;
   onDeleteEmployee: (id: number) => void;
 }) {
   return (
     <>
-      <PageTitle title="Crew management" subtitle="Register field teams, job assignments and work status." action="Add crew member" />
+      <PageTitle title="Crew management" subtitle="Register field teams, job assignments and work status." action="Add crew member" onAction={onAddEmployee} />
       <DataTable
         icon={Users}
         columns={["Name", "Position", "Job", "Status", "Action"]}
@@ -843,23 +897,24 @@ function MaterialsView({
   );
 }
 
-function ProgressView({ projects }: { projects: Project[] }) {
+function ProgressView({ updates,onAddProgress,onDeleteProgress }: { updates:ProgressUpdate[];onAddProgress:()=>void;onDeleteProgress:(id:number)=>void }) {
   return (
     <>
-      <PageTitle title="Jobsite progress" subtitle="Percentage tracking by job, phase and weekly review." action="Update progress" />
+      <PageTitle title="Jobsite progress" subtitle="Percentage tracking by job, phase and weekly review." action="Update progress" onAction={onAddProgress} />
       <section className="panel">
-        {projects.length ? (
+        {updates.length ? (
           <div className="progress-board">
-            {projects.map((project) => (
-              <div className="phase-row" key={project.id}>
+            {updates.map((update) => (
+              <div className="phase-row" key={update.id}>
                 <div>
-                  <strong>{project.name}</strong>
-                  <span>Weekly review - {formatDate(project.deadline)}</span>
+                  <strong>{update.projectName} · {update.phase}</strong>
+                  <span>{update.notes} · {formatDate(update.reportedOn)}</span>
                 </div>
                 <div className="progress-line">
-                  <span style={{ width: `${project.progress}%` }} />
+                  <span style={{ width: `${update.percentComplete}%` }} />
                 </div>
-                <b>{project.progress}%</b>
+                <b>{update.percentComplete}%</b>
+                <DeleteButton label={`Delete update ${update.id}`} onClick={()=>onDeleteProgress(update.id)}/>
               </div>
             ))}
           </div>
@@ -901,7 +956,7 @@ function IncidentsView({
   );
 }
 
-function ReportsView({ projects, employees }: { projects: Project[]; employees: Employee[] }) {
+function ReportsView({ reports,projects,employees,onAddReport,onDeleteReport }: { reports:Report[];projects:Project[];employees:Employee[];onAddReport:()=>void;onDeleteReport:(id:number)=>void }) {
   const averageProgress = projects.length
     ? Math.round(projects.reduce((sum, project) => sum + project.progress, 0) / projects.length)
     : 0;
@@ -910,7 +965,7 @@ function ReportsView({ projects, employees }: { projects: Project[]; employees: 
 
   return (
     <>
-      <PageTitle title="Reports and analytics" subtitle="Executive indicators for productivity, cost and progress." />
+      <PageTitle title="Reports and analytics" subtitle="Executive indicators for productivity, cost and progress." action="New report" onAction={onAddReport} />
       <div className="report-grid">
         <section className="panel">
           <div className="panel-heading">
@@ -938,6 +993,7 @@ function ReportsView({ projects, employees }: { projects: Project[]; employees: 
           <p>{productivity}% of registered crew has a project assignment.</p>
         </section>
       </div>
+      <DataTable icon={BarChart3} columns={["Report","Type","Period","Value","Status","Action"]} rows={reports.map(report=>({id:report.id,cells:[report.title,report.reportType,report.periodLabel,`${Number(report.metricValue).toLocaleString()} ${report.metricUnit}`,report.status,<DeleteButton label={`Delete ${report.title}`} onClick={()=>onDeleteReport(report.id)}/>]}))}/>
     </>
   );
 }
@@ -1010,15 +1066,24 @@ function CreateModal({
   handleCreateIncident,
   handleCreateMaterial,
   handleCreateProject,
+  handleCreateEmployee,
+  handleCreateProgress,
+  handleCreateReport,
   handleMaterialImage,
   incidentForm,
   materialForm,
   projectForm,
+  employeeForm,
+  progressForm,
+  reportForm,
   saveError,
   saving,
   setIncidentForm,
   setMaterialForm,
   setProjectForm,
+  setEmployeeForm,
+  setProgressForm,
+  setReportForm,
 }: {
   activeModal: ModalType;
   closeCreateModal: () => void;
@@ -1026,15 +1091,24 @@ function CreateModal({
   handleCreateIncident: (event: FormEvent) => void;
   handleCreateMaterial: (event: FormEvent) => void;
   handleCreateProject: (event: FormEvent) => void;
+  handleCreateEmployee:(event:FormEvent)=>void;
+  handleCreateProgress:(event:FormEvent)=>void;
+  handleCreateReport:(event:FormEvent)=>void;
   handleMaterialImage: (event: ChangeEvent<HTMLInputElement>) => void;
   incidentForm: { description: string; priority: string; projectName: string; evidenceCount: string };
   materialForm: { name: string; movementType: string; quantity: string; destination: string; image: MaterialImagePayload | null };
   projectForm: { name: string; location: string; manager: string; status: string; progress: string; budget: string; deadline: string };
+  employeeForm:{fullName:string;position:string;projectName:string;status:string};
+  progressForm:{projectName:string;phase:string;percentComplete:string;notes:string;reportedOn:string};
+  reportForm:{title:string;reportType:string;periodLabel:string;metricValue:string;metricUnit:string;status:string};
   saveError: string;
   saving: boolean;
   setIncidentForm: Dispatch<SetStateAction<{ description: string; priority: string; projectName: string; evidenceCount: string }>>;
   setMaterialForm: Dispatch<SetStateAction<{ name: string; movementType: string; quantity: string; destination: string; image: MaterialImagePayload | null }>>;
   setProjectForm: Dispatch<SetStateAction<{ name: string; location: string; manager: string; status: string; progress: string; budget: string; deadline: string }>>;
+  setEmployeeForm:Dispatch<SetStateAction<{fullName:string;position:string;projectName:string;status:string}>>;
+  setProgressForm:Dispatch<SetStateAction<{projectName:string;phase:string;percentComplete:string;notes:string;reportedOn:string}>>;
+  setReportForm:Dispatch<SetStateAction<{title:string;reportType:string;periodLabel:string;metricValue:string;metricUnit:string;status:string}>>;
 }) {
   if (!activeModal) return null;
 
@@ -1049,7 +1123,7 @@ function CreateModal({
                 ? "Add project"
                 : activeModal === "material"
                   ? "Add material"
-                  : "Add incident"}
+                  : activeModal === "employee" ? "Add crew member" : activeModal === "progress" ? "Add progress update" : activeModal === "report" ? "Add report" : "Add incident"}
             </h3>
           </div>
           <button className="icon-button" type="button" onClick={closeCreateModal} aria-label="Close modal">
@@ -1125,6 +1199,33 @@ function CreateModal({
             <ModalActions saving={saving} saveError={saveError} onCancel={closeCreateModal} />
           </form>
         ) : null}
+
+        {activeModal === "employee" ? <form className="record-form" onSubmit={handleCreateEmployee}>
+          <label>Full name<input required value={employeeForm.fullName} onChange={e=>setEmployeeForm(c=>({...c,fullName:e.target.value}))}/></label>
+          <label>Position<input required value={employeeForm.position} onChange={e=>setEmployeeForm(c=>({...c,position:e.target.value}))}/></label>
+          <label>Project<select value={employeeForm.projectName} onChange={e=>setEmployeeForm(c=>({...c,projectName:e.target.value}))}><option value="">Unassigned</option>{data.projects.map(p=><option key={p.id}>{p.name}</option>)}</select></label>
+          <label>Status<select value={employeeForm.status} onChange={e=>setEmployeeForm(c=>({...c,status:e.target.value}))}><option>Active</option><option>On leave</option><option>Inactive</option></select></label>
+          <ModalActions saving={saving} saveError={saveError} onCancel={closeCreateModal}/>
+        </form>:null}
+
+        {activeModal === "progress" ? <form className="record-form" onSubmit={handleCreateProgress}>
+          <label>Project<select required value={progressForm.projectName} onChange={e=>setProgressForm(c=>({...c,projectName:e.target.value}))}><option value="">Select project</option>{data.projects.map(p=><option key={p.id}>{p.name}</option>)}</select></label>
+          <label>Phase<input required value={progressForm.phase} onChange={e=>setProgressForm(c=>({...c,phase:e.target.value}))}/></label>
+          <label>Complete %<input required type="number" min="0" max="100" value={progressForm.percentComplete} onChange={e=>setProgressForm(c=>({...c,percentComplete:e.target.value}))}/></label>
+          <label>Report date<input required type="date" value={progressForm.reportedOn} onChange={e=>setProgressForm(c=>({...c,reportedOn:e.target.value}))}/></label>
+          <label className="full-field">Notes<textarea required value={progressForm.notes} onChange={e=>setProgressForm(c=>({...c,notes:e.target.value}))}/></label>
+          <ModalActions saving={saving} saveError={saveError} onCancel={closeCreateModal}/>
+        </form>:null}
+
+        {activeModal === "report" ? <form className="record-form" onSubmit={handleCreateReport}>
+          <label>Title<input required value={reportForm.title} onChange={e=>setReportForm(c=>({...c,title:e.target.value}))}/></label>
+          <label>Type<select value={reportForm.reportType} onChange={e=>setReportForm(c=>({...c,reportType:e.target.value}))}><option>Progress</option><option>Financial</option><option>Safety</option><option>Workforce</option><option>Materials</option><option>Quality</option></select></label>
+          <label>Period<input required placeholder="July 2026" value={reportForm.periodLabel} onChange={e=>setReportForm(c=>({...c,periodLabel:e.target.value}))}/></label>
+          <label>Value<input required type="number" step="0.01" value={reportForm.metricValue} onChange={e=>setReportForm(c=>({...c,metricValue:e.target.value}))}/></label>
+          <label>Unit<input required value={reportForm.metricUnit} onChange={e=>setReportForm(c=>({...c,metricUnit:e.target.value}))}/></label>
+          <label>Status<select value={reportForm.status} onChange={e=>setReportForm(c=>({...c,status:e.target.value}))}><option>Current</option><option>Review</option><option>Action needed</option></select></label>
+          <ModalActions saving={saving} saveError={saveError} onCancel={closeCreateModal}/>
+        </form>:null}
 
         {activeModal === "incident" ? (
           <form className="record-form" onSubmit={handleCreateIncident}>

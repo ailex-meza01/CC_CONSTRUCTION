@@ -6,7 +6,10 @@ import { closeSqlPool, testSqlConnection } from "./db/sqlServer.js";
 const server = createServer(app);
 
 const logDatabaseStatus = async () => {
-  const target = `${env.sqlServer.host}:${env.sqlServer.port}/${env.sqlServer.database}`;
+  const sqlTarget = env.sqlServer.instance
+    ? `${env.sqlServer.host}\\${env.sqlServer.instance}`
+    : `${env.sqlServer.host}:${env.sqlServer.port}`;
+  const target = `${sqlTarget}/${env.sqlServer.database}`;
 
   try {
     const connected = await testSqlConnection();

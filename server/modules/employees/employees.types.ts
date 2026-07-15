@@ -5,3 +5,5 @@ export type Employee = {
   projectName: string | null;
   status: string;
 };
+
+export type CreateEmployeeInput = Omit<Employee, "id">;
