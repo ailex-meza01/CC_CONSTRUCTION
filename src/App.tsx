@@ -430,16 +430,16 @@ function App() {
   if (!currentUser) {
     return (
       <main className="login-page">
-        <section className="login-visual" aria-label="CC Construction">
+        <section className="login-visual" aria-label="Raul Coronado Custom Cabinets">
           <div className="brand-mark">
             <Building2 size={30} />
           </div>
           <div>
-            <p className="eyebrow">CC Construction</p>
-            <h1>Wood-frame construction project management</h1>
+            <p className="eyebrow">Raul Coronado Custom Cabinets</p>
+            <h1>Custom cabinet project management</h1>
             <p>
-              Field-ready operations for schedules, crews, lumber inventory,
-              jobsite progress, photo evidence and executive reporting.
+              Field-ready operations for schedules, crews, material inventory,
+              installation progress, photo evidence and executive reporting.
             </p>
           </div>
           <div className="site-card">
@@ -456,7 +456,7 @@ function App() {
         <section className="login-panel" aria-label="Sign in">
           <div className="mobile-brand">
             <Building2 />
-            <strong>CC Construction</strong>
+            <strong>Raul Coronado Custom Cabinets</strong>
           </div>
           <div className="panel-header">
             <p className="eyebrow">Secure access</p>
@@ -508,8 +508,8 @@ function App() {
             <Building2 size={22} />
           </div>
           <div>
-            <strong>CC Construction</strong>
-            <span>Field operations</span>
+            <strong>Raul Coronado Custom Cabinets</strong>
+            <span>Cabinet operations</span>
           </div>
           <button className="icon-button close-nav" type="button" onClick={() => setSidebarOpen(false)} aria-label="Close menu">
             <X size={18} />
@@ -804,7 +804,7 @@ function ProjectsView({
 }) {
   return (
     <>
-      <PageTitle title="Construction projects" subtitle="Track wood-frame jobs, budgets, leads and delivery dates." action="New project" onAction={onAddProject} />
+      <PageTitle title="Cabinet projects" subtitle="Track custom cabinet jobs, budgets, leads and delivery dates." action="New project" onAction={onAddProject} />
       {projects.length ? (
         <div className="cards-grid">
           {projects.map((project) => (
